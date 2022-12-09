@@ -1,6 +1,6 @@
 {
   "name": "@aptstats/nightly-wallet-extension",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "files": [
@@ -45,8 +45,6 @@
   },
   "dependencies": {
     "@aptstats/aptos-wallet-framework": "^0.0.2",
-    "@blocto/sdk": "^0.3.3",
-    "@fewcha/web3": "^0.1.37",
     "aptos": "^1.4.0",
     "eventemitter3": "^4.0.7",
     "js-sha3": "^0.8.0"
