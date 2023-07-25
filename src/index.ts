@@ -1,235 +1,246 @@
-// eslint-disable-next-line prettier/prettier
-export const NightlyWallet = () => { };
-
+/* eslint-disable @typescript-eslint/no-throw-literal */
 import {
   WalletName,
   BaseWalletAdapter,
-  WalletAdapterNetwork,
-  WalletReadyState,
-  scopePollingDetectionStrategy,
-  AccountKeys,
   NetworkInfo,
-  WalletNotReadyError,
-  WalletDisconnectionError,
-  WalletNotConnectedError,
-  WalletSignTransactionError,
-  WalletSignMessageError,
-  WalletAccountChangeError,
-  WalletNetworkChangeError
+  AccountKeys,
+  SignMessagePayload,
+  SignMessageResponse,
+  WalletAdapterNetwork,
+  WalletReadyState
 } from '@aptstats/aptos-wallet-framework';
 import { PendingTransaction, TransactionPayload } from 'aptos/src/generated';
-import * as SHA3 from 'js-sha3';
-import { nightlyIcon } from './icon'
-
-export class AptosPublicKey {
-  private readonly hexString: string
-
-  static default() {
-    return new AptosPublicKey('0'.repeat(64))
-  }
-
-  address() {
-    const hash = SHA3.sha3_256.create()
-    hash.update(Buffer.from(this.asPureHex(), 'hex'))
-    hash.update('\x00')
-    return '0x' + hash.hex()
-  }
-
-  asUint8Array() {
-    return new Uint8Array(Buffer.from(this.asPureHex(), 'hex'))
-  }
-  static fromBase58(base58string: string) {
-    const bytes = Buffer.from(base58.decode(base58string))
-    const hexString = bytes.toString('hex')
-    return new AptosPublicKey(hexString)
-  }
-  asString() {
-    return this.hexString
-  }
-
-  asPureHex() {
-    return this.hexString.substr(2)
-  }
-
-  constructor(hexString: string) {
-    if (hexString.startsWith('0x')) {
-      this.hexString = hexString
-    } else {
-      this.hexString = `0x${hexString}`
-    }
-  }
-}
-
+import { nightlyIcon } from './icon';
+import { AptosPublicKey } from './aptos_public_key';
+import { Types } from 'aptos';
 
 interface AptosNightly {
-  publicKey: AptosPublicKey
-  onAccountChange: (pubKey?: string) => void
-  connect(onDisconnect?: () => void, eagerConnect?: boolean): Promise<AptosPublicKey>
-  disconnect(): Promise<void>
+  publicKey: AptosPublicKey;
+  onAccountChange: (pubKey?: string) => void;
+  connect(onDisconnect?: () => void, eagerConnect?: boolean): Promise<AptosPublicKey>;
+  disconnect(): Promise<void>;
   signTransaction: (
     transaction: TransactionPayload,
     submit: boolean
-  ) => Promise<Uint8Array | PendingTransaction>
-  signAllTransactions: (transaction: TransactionPayload[]) => Promise<Uint8Array[]>
-  signMessage(msg: string): Promise<Uint8Array>
-  network(): Promise<{ api: string; chainId: number; network: string }>
+  ) => Promise<Uint8Array | PendingTransaction>;
+  signAllTransactions: (transaction: TransactionPayload[]) => Promise<Uint8Array[]>;
+  signMessage(msg: string): Promise<Uint8Array>;
+  network(): Promise<{ api: string; chainId: number; network: string }>;
 }
+
+type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
+type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+type AccountInfo = PartialBy<AccountKeys, 'authKey'>;
+
 interface NightlyWindow extends Window {
   nightly?: {
-    aptos: AptosNightly
-  }
+    aptos: AptosNightly;
+  };
 }
 
-declare const window: NightlyWindow // CHANGE AptosWindow
+declare const window: NightlyWindow; // CHANGE AptosWindow
 
-export const NightlyWalletName = 'Nightly' as WalletName<'Nightly'> // CHANGE AptosWalletName, CHANGE "Aptos"
+export const NightlyWalletName = 'Nightly' as WalletName<'Nightly'>; // CHANGE AptosWalletName, CHANGE "Aptos"
 
 // CHANGE AptosWallet
-export class NightlyWallet implements AdapterPlugin {
-  readonly name = NightlyWalletName // CHANGE AptosWalletName (can have capitalization)
+export class NightlyWallet extends BaseWalletAdapter {
+  get readyState(): WalletReadyState {
+    throw new Error('Method not implemented.');
+  }
+
+  get publicAccount(): AccountKeys {
+    return {
+      publicKey: this._wallet?.publicKey || null,
+      address: this._wallet?.address || null,
+      authKey: this._wallet?.authKey || null
+    };
+  }
+
+  get connecting(): boolean {
+    return this._connecting;
+  }
+
+  readonly name = NightlyWalletName; // CHANGE AptosWalletName (can have capitalization)
+
   readonly url = // CHANGE url value
-    'https://chrome.google.com/webstore/detail/nightly/fiikommddbeccaoicoejoniammnalkfa'
-  readonly icon = nightlyIcon
+    'https://chrome.google.com/webstore/detail/nightly/fiikommddbeccaoicoejoniammnalkfa';
+
+  readonly icon = nightlyIcon;
 
   // An optional property for wallets which may have different wallet name with window property name.
   // such as window.aptosWallet and wallet name is Aptos.
   // If your wallet name prop is different than the window property name use the window property name here and comment out line 37
 
-  readonly providerName = 'nightly'
+  readonly providerName = 'nightly';
+
+  private _wallet: AccountInfo = null;
+
+  private _network: NetworkInfo = null;
+
+  private _connecting: boolean = false;
 
   provider: { aptos: AptosNightly } | undefined =
-    typeof window !== 'undefined' && window.nightly ? window.nightly : undefined // CHANGE window.aptos
-  async connect(): Promise<AccountInfo> {
+    typeof window !== 'undefined' && window.nightly ? window.nightly : undefined; // CHANGE window.aptos
+
+  async connect(): Promise<void> {
     try {
-      const accountInfo = await this.provider?.aptos.connect()
-      if (!accountInfo) throw `${NightlyWalletName} Address Info Error`
-      return {
+      this._connecting = true;
+      const accountInfo = await this.provider?.aptos.connect();
+      if (!accountInfo) throw `${NightlyWalletName} Address Info Error`;
+      this._wallet = {
         address: accountInfo.address(),
-        publicKey: accountInfo.asString(),
+        publicKey: accountInfo.asString()
+      };
+
+      if (this._wallet) {
+        try {
+          const networkInfo = await this.provider?.aptos.network();
+          this._network = {
+            api: networkInfo.api,
+            name: networkInfo.network as WalletAdapterNetwork,
+            chainId: networkInfo.chainId + ''
+          };
+        } catch (error: any) {
+          throw error;
+        }
       }
     } catch (error: any) {
-      throw error
+      throw error;
+    } finally {
+      this._connecting = false;
     }
   }
 
   async account(): Promise<AccountInfo> {
-    const response = await this.provider?.aptos.publicKey
-    if (!response) throw `${NightlyWalletName} Account Error`
+    const response = await this.provider?.aptos.publicKey;
+    if (!response) throw `${NightlyWalletName} Account Error`;
     return {
       address: response.address(),
-      publicKey: response.asString(),
-    }
+      publicKey: response.asString()
+    };
   }
 
   async disconnect(): Promise<void> {
     try {
-      await this.provider?.aptos.disconnect()
+      await this.provider?.aptos.disconnect();
     } catch (error: any) {
-      throw error
+      throw error;
     }
   }
+
   async signTransaction(
-    transaction: Types.TransactionPayload
-  ): Promise<{ hash: Types.HexEncodedBytes }> {
+    transactionPyld: Types.TransactionPayload,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    options?: any
+  ): Promise<Uint8Array> {
     try {
-      const response = await this.provider?.aptos.signTransaction(transaction, false)
-      if (!response) throw `${NightlyWalletName} signAndSubmitTransaction Error`
-      return { hash: Buffer.from(response as unknown as Uint8Array).toString('hex') }
+      const response = await this.provider?.aptos.signTransaction(transactionPyld, false);
+      if (!response) throw `${NightlyWalletName} signAndSubmitTransaction Error`;
+      return response as Uint8Array;
     } catch (error: any) {
-      const errMsg = error.message
-      throw errMsg
+      const errMsg = error.message;
+      throw errMsg;
     }
   }
+
   async signAndSubmitTransaction(
     transaction: Types.TransactionPayload,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     options?: any
   ): Promise<{ hash: Types.HexEncodedBytes }> {
     try {
-      const response = await this.provider?.aptos.signTransaction(transaction, true)
-      if (!response) throw `${NightlyWalletName} signAndSubmitTransaction Error`
-      return { hash: (response as unknown as PendingTransaction).hash }
+      const response = await this.provider?.aptos.signTransaction(transaction, true);
+      if (!response) throw `${NightlyWalletName} signAndSubmitTransaction Error`;
+      return { hash: (response as unknown as PendingTransaction).hash };
     } catch (error: any) {
-      const errMsg = error.message
-      throw errMsg
+      const errMsg = error.message;
+      throw errMsg;
     }
   }
+
+  // SignMessageResponse {
+  //   address: string;
+  //   application: string;
+  //   chainId: number;
+  //   fullMessage: string; // The message that was generated to sign
+  //   message: string; // The message passed in by the user
+  //   nonce: string;
+  //   prefix: string; // Should always be APTOS
+  //   signature: string; // The signed full message
+  // }
 
   async signMessage(message: SignMessagePayload): Promise<SignMessageResponse> {
     try {
       if (typeof message !== 'object' || !message.nonce) {
-        ;`${NightlyWalletName} Invalid signMessage Payload`
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        `${NightlyWalletName} Invalid signMessage Payload`;
       }
       // TODO: use nonce and prefix
-      const response = await this.provider?.aptos.signMessage(message.message)
+      const response = await this.provider?.aptos.signMessage(message.message);
       if (response) {
         return {
+          address: this._wallet.address as string,
+          application: '',
+          chainId: (await this.provider.aptos.network()).chainId,
           fullMessage: message.message,
           signature: response.toString(),
           message: message.message,
           nonce: message.nonce,
-          prefix: 'APTOS',
-        }
+          prefix: 'APTOS'
+        };
       } else {
-        throw `${NightlyWalletName} Sign Message failed`
+        throw `${NightlyWalletName} Sign Message failed`;
       }
     } catch (error: any) {
-      const errMsg = error.message
-      throw errMsg
+      const errMsg = error.message;
+      throw errMsg;
     }
   }
 
-  async network(): Promise<NetworkInfo> {
-    try {
-      const response = await this.provider?.aptos.network()
-      if (!response) throw `${NightlyWalletName} Network Error`
-      return {
-        name: response.network.toLocaleLowerCase() as NetworkName,
-      }
-    } catch (error: any) {
-      throw error
-    }
+  get network(): NetworkInfo {
+    return this._network;
   }
+
   // TODO: implement this
-  async onNetworkChange(callback: any): Promise<void> {
+  async onNetworkChange(): Promise<void> {
     try {
-      // throw 'Not implemented'
+      console.log('networkChange Not implemented.');
+      // NOT implemented.
     } catch (error: any) {
-      const errMsg = error.message
-      throw errMsg
+      throw error;
     }
   }
 
-  async onAccountChange(callback: any): Promise<void> {
+  async onAccountChange(): Promise<void> {
     try {
       const handleAccountChange = async (newAccount: AccountInfo): Promise<void> => {
-        if (newAccount?.publicKey) {
-          callback({
-            publicKey: newAccount.publicKey,
-            address: newAccount.address,
-          })
-        } else {
-          const response = await this.connect()
-          callback({
-            address: response?.address,
-            publicKey: response?.publicKey,
-          })
+        if (newAccount === undefined) {
+          if (this.connected) await this.disconnect();
+          return;
         }
-      }
+        const newPublicKey = newAccount.publicKey;
+        this._wallet = {
+          ...this._wallet,
+          address: newAccount.address,
+          publicKey: newPublicKey,
+          authKey: newAccount.authKey
+        };
+      };
       if (this.provider) {
         this.provider.aptos.onAccountChange = (pubKey) => {
           if (!pubKey) {
-            return
+            return;
           }
-          const publicKey = AptosPublicKey.fromBase58(pubKey)
-          handleAccountChange({ address: publicKey.address(), publicKey: publicKey.asString() })
-        }
+          const publicKey = AptosPublicKey.fromBase58(pubKey);
+          handleAccountChange({ address: publicKey.address(), publicKey: publicKey.asString() });
+        };
       } else {
-        throw `${NightlyWalletName} onAccountChange Error`
+        throw `${NightlyWalletName} onAccountChange Error`;
       }
     } catch (error: any) {
-      console.log(error)
-      const errMsg = error.message
-      throw errMsg
+      console.log(error);
+      const errMsg = error.message;
+      throw errMsg;
     }
   }
 }
