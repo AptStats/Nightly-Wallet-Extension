@@ -43,7 +43,7 @@ declare const window: NightlyWindow; // CHANGE AptosWindow
 export const NightlyWalletName = 'Nightly' as WalletName<'Nightly'>; // CHANGE AptosWalletName, CHANGE "Aptos"
 
 // CHANGE AptosWallet
-export class NightlyWallet extends BaseWalletAdapter {
+export class NightlyWalletAdapter extends BaseWalletAdapter {
   get readyState(): WalletReadyState {
     throw new Error('Method not implemented.');
   }
